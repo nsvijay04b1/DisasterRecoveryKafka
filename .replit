@@ -1,0 +1,40 @@
+modules = ["java"]
+
+[nix]
+channel = "stable-24_05"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Kafka Failover Setup"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "kafka-failover-setup"
+
+[[workflows.workflow]]
+name = "Kafka Failover Setup"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "chmod +x setup.sh && ./setup.sh"
+waitForPort = 5000
+
+[[workflows.workflow]]
+name = "kafka-failover-setup"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "chmod +x setup.sh && ./setup.sh"
+
+[deployment]
+run = ["sh", "-c", "chmod +x setup.sh && ./setup.sh"]

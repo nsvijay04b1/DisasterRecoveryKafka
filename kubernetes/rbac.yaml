@@ -1,0 +1,64 @@
+# Service Account for Kafka Consumer
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kafka-consumer-sa
+  namespace: region-a
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kafka-consumer-sa
+  namespace: region-b
+---
+# Role for ConfigMap access in region-a
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: configmap-reader
+  namespace: region-a
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "watch", "list", "update", "patch"]
+---
+# Role for ConfigMap access in region-b
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: configmap-reader
+  namespace: region-b
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "watch", "list", "update", "patch"]
+---
+# RoleBinding for region-a
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: configmap-reader-binding
+  namespace: region-a
+subjects:
+- kind: ServiceAccount
+  name: kafka-consumer-sa
+  namespace: region-a
+roleRef:
+  kind: Role
+  name: configmap-reader
+  apiGroup: rbac.authorization.k8s.io
+---
+# RoleBinding for region-b
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: configmap-reader-binding
+  namespace: region-b
+subjects:
+- kind: ServiceAccount
+  name: kafka-consumer-sa
+  namespace: region-b
+roleRef:
+  kind: Role
+  name: configmap-reader
+  apiGroup: rbac.authorization.k8s.io

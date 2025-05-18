@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: failover-config
+  namespace: region-b
+data:
+  mode: "standby"
+  drtimestamp: ""
+  topic: "test-topic"
+  resolvedOffsets: ""
