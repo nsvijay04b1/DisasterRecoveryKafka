@@ -34,6 +34,7 @@ public class KafkaConsumerConfig {
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         // Disable auto-commit to handle offsets manually
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+        System.out.println("[KafkaConsumerConfig] Using group.id: " + groupId);
         return new DefaultKafkaConsumerFactory<>(props);
     }
 

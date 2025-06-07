@@ -2,7 +2,6 @@ package com.example.kafkafailover.service;
 
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,32 +71,62 @@ public class KafkaConsumerService {
     /**
      * Main Kafka listener method
      */
-    @KafkaListener(id = KAFKA_LISTENER_ID, topics = "${kafka.topic:test-topic}")
+    @KafkaListener(id = KAFKA_LISTENER_ID, topics = "${kafka.topic:test-topic}", groupId = "${spring.kafka.consumer.group-id:failover-consumer-group}")
     public void listen(ConsumerRecord<String, String> record, Consumer<String, String> consumer, Acknowledgment ack) {
+        logger.info("Consumer group: {} | Processing message: topic={}, partition={}, offset={}, key={}, value={}",
+                consumer.groupMetadata().groupId(), record.topic(), record.partition(), record.offset(), record.key(), record.value());
+
         if (!isActive.get()) {
             logger.debug("In STANDBY mode - not processing messages");
-            // Acknowledge but don't process in standby mode
             ack.acknowledge();
             return;
         }
 
-        // Check if we need to seek to a specific offset
+        // Always check if we need to seek to a specific offset before processing
         if (needsOffsetReset.getAndSet(false)) {
             Map<TopicPartition, Long> offsets = targetOffsets.get();
             if (offsets != null && !offsets.isEmpty()) {
                 for (Map.Entry<TopicPartition, Long> entry : offsets.entrySet()) {
                     consumer.seek(entry.getKey(), entry.getValue());
+                    logger.info("Consumer sought to offset {} for partition {}", entry.getValue(), entry.getKey().partition());
                 }
-                logger.info("Consumer sought to resolved offsets");
+            }
+        }
+
+        // Only process messages at or after the DR timestamp offset
+        Map<TopicPartition, Long> offsets = targetOffsets.get();
+        if (offsets != null && offsets.containsKey(new TopicPartition(record.topic(), record.partition()))) {
+            long drOffset = offsets.get(new TopicPartition(record.topic(), record.partition()));
+            if (record.offset() < drOffset) {
+                logger.info("Skipping message at offset {} (before DR offset {})", record.offset(), drOffset);
+                ack.acknowledge();
+                return;
             }
         }
 
         // Process the record
         logger.info("Processing message: topic={}, partition={}, offset={}, key={}, value={}",
                 record.topic(), record.partition(), record.offset(), record.key(), record.value());
-        
-        // Acknowledge the message
         ack.acknowledge();
+    }
+
+    /**
+     * Prevent the application from exiting by running a background thread that blocks
+     */
+    @PostConstruct
+    public void keepAlive() {
+        Thread keepAliveThread = new Thread(() -> {
+            try {
+                // Block forever
+                synchronized (this) {
+                    this.wait();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        keepAliveThread.setDaemon(false); // Prevent JVM exit
+        keepAliveThread.start();
     }
 
     /**
@@ -118,12 +147,11 @@ public class KafkaConsumerService {
             
             if (drTimestamp != null && !drTimestamp.isEmpty()) {
                 long timestamp = offsetResolverService.parseTimestamp(drTimestamp);
-                logger.info("DR timestamp provided: {} ({})", drTimestamp, timestamp);
-                
+                String iso8601 = offsetResolverService.formatTimestampAsIso8601(timestamp);
+                logger.info("DR timestamp provided: {} (epoch: {}, ISO-8601 UTC: {})", drTimestamp, timestamp, iso8601);
                 // Resolve offsets for the timestamp
                 Map<TopicPartition, Long> offsets = offsetResolverService.resolveOffsetsForTime(
                         currentTopic.get(), timestamp);
-                
                 if (!offsets.isEmpty()) {
                     targetOffsets.set(offsets);
                     needsOffsetReset.set(true);
@@ -149,6 +177,8 @@ public class KafkaConsumerService {
             logger.info("Already in ACTIVE mode, but DR timestamp changed: {}", drTimestamp);
             // Handle timestamp change while already active
             long timestamp = offsetResolverService.parseTimestamp(drTimestamp);
+            String iso8601 = offsetResolverService.formatTimestampAsIso8601(timestamp);
+            logger.info("DR timestamp provided: {} (epoch: {}, ISO-8601 UTC: {})", drTimestamp, timestamp, iso8601);
             Map<TopicPartition, Long> offsets = offsetResolverService.resolveOffsetsForTime(
                     currentTopic.get(), timestamp);
             
@@ -180,12 +210,13 @@ public class KafkaConsumerService {
         MessageListenerContainer listenerContainer = 
                 kafkaListenerEndpointRegistry.getListenerContainer(KAFKA_LISTENER_ID);
         if (listenerContainer != null) {
-            if (listenerContainer.isPaused()) {
-                listenerContainer.resume();
-                logger.info("Kafka listener resumed");
-            } else if (!listenerContainer.isRunning()) {
+            // MessageListenerContainer does not have isPaused(), so only check running state
+            if (!listenerContainer.isRunning()) {
                 listenerContainer.start();
                 logger.info("Kafka listener started");
+            } else {
+                listenerContainer.resume();
+                logger.info("Kafka listener resumed");
             }
         }
     }
@@ -199,7 +230,7 @@ public class KafkaConsumerService {
             Configuration.setDefaultApiClient(client);
             CoreV1Api api = new CoreV1Api();
 
-            V1ConfigMap configMap = api.readNamespacedConfigMap(configMapName, namespace, null);
+            V1ConfigMap configMap = api.readNamespacedConfigMap(configMapName, namespace, null, null, null);
             
             // Add the offsets information to the ConfigMap
             StringBuilder offsetsStr = new StringBuilder();
@@ -217,7 +248,10 @@ public class KafkaConsumerService {
                 offsetsStr.setLength(offsetsStr.length() - 1);
             }
             
-            configMap.getData().put("resolvedOffsets", offsetsStr.toString());
+            Map<String, String> data = configMap.getData();
+            if (data != null) {
+                data.put("resolvedOffsets", offsetsStr.toString());
+            }
             
             // Update the ConfigMap
             api.replaceNamespacedConfigMap(configMapName, namespace, configMap, null, null, null);

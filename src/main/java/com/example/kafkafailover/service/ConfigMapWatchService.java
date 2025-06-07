@@ -19,6 +19,7 @@ import com.google.gson.reflect.TypeToken;
 
 import javax.annotation.PostConstruct;
 import java.io.IOException;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -68,9 +69,15 @@ public class ConfigMapWatchService {
                     
                     for (Response<V1ConfigMap> item : watch) {
                         V1ConfigMap configMap = item.object;
-                        if (configMap.getMetadata().getName().equals(configMapName)) {
-                            logger.info("ConfigMap {} modification detected: {}", configMapName, item.type);
-                            handleConfigMapChange(configMap);
+                        if (configMap != null) {
+                            var metadata = configMap.getMetadata();
+                            if (metadata != null) {
+                                String name = metadata.getName();
+                                if (name != null && name.equals(configMapName)) {
+                                    logger.info("ConfigMap {} modification detected: {}", configMapName, item.type);
+                                    handleConfigMapChange(configMap);
+                                }
+                            }
                         }
                     }
                 }
@@ -90,7 +97,7 @@ public class ConfigMapWatchService {
 
     private void readCurrentConfigMap(CoreV1Api api) {
         try {
-            V1ConfigMap configMap = api.readNamespacedConfigMap(configMapName, namespace, null);
+            V1ConfigMap configMap = api.readNamespacedConfigMap(configMapName, namespace, null, null, null);
             handleConfigMapChange(configMap);
         } catch (ApiException e) {
             logger.error("Error reading ConfigMap {}: {}", configMapName, e.getMessage());
@@ -98,18 +105,15 @@ public class ConfigMapWatchService {
     }
 
     private void handleConfigMapChange(V1ConfigMap configMap) {
-        if (configMap == null || configMap.getData() == null) {
+        if (configMap != null && configMap.getData() != null) {
+            Map<String, String> data = configMap.getData();
+            String mode = data != null ? data.get("mode") : null;
+            String drTimestamp = data != null ? data.get("drtimestamp") : null;
+            String topic = data != null ? data.get("topic") : null;
+            logger.info("ConfigMap updated - Mode: {}, DR Timestamp: {}, Topic: {}", mode, drTimestamp, topic);
+            kafkaConsumerService.updateConsumerState(mode, drTimestamp, topic);
+        } else {
             logger.warn("ConfigMap or its data is null");
-            return;
         }
-
-        String mode = configMap.getData().get("mode");
-        String drTimestamp = configMap.getData().get("drtimestamp");
-        String topic = configMap.getData().get("topic");
-
-        logger.info("ConfigMap updated - Mode: {}, DR Timestamp: {}, Topic: {}", mode, drTimestamp, topic);
-
-        // Update the Kafka consumer service with the new configuration
-        kafkaConsumerService.updateConsumerState(mode, drTimestamp, topic);
     }
 }

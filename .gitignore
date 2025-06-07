@@ -1,0 +1,15 @@
+**/target
+**/build
+**/dist
+**/node_modules
+**/coverage
+**/logs
+**/.env
+**/.DS_Store
+**/.vscode
+**/.idea
+**/.cache
+**/.pytest_cache
+**/.mypy_cache
+**/*.jar
+target/kafka-failover-1.0.0.jar

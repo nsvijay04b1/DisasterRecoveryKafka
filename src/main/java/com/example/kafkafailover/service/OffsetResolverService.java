@@ -1,8 +1,6 @@
 package com.example.kafkafailover.service;
 
 import org.apache.kafka.clients.consumer.Consumer;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndTimestamp;
 import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
@@ -81,18 +79,30 @@ public class OffsetResolverService {
      * Accepts ISO-8601 format (e.g. "2023-10-15T14:30:00Z") or milliseconds since epoch.
      */
     public long parseTimestamp(String timestampStr) {
+        logger.info("Raw drtimestamp from ConfigMap: '{}'", timestampStr);
         try {
             // Try parsing as a long (milliseconds since epoch)
             return Long.parseLong(timestampStr);
         } catch (NumberFormatException e) {
             try {
-                // Try parsing as ISO-8601 date
-                return Instant.parse(timestampStr).toEpochMilli();
+                // Always parse as UTC, require 'Z' at the end for ISO-8601
+                // Also, parse using OffsetDateTime to avoid DST/locale issues
+                java.time.OffsetDateTime odt = java.time.OffsetDateTime.parse(timestampStr);
+                long epoch = odt.toInstant().toEpochMilli();
+                logger.info("Parsed epoch from drtimestamp (OffsetDateTime): {}", epoch);
+                return epoch;
             } catch (Exception ex) {
-                logger.error("Failed to parse timestamp: {}", timestampStr, ex);
+                logger.error("Failed to parse timestamp: {} (input was: '{}')", timestampStr, timestampStr, ex);
                 // Return current time if parsing fails
                 return System.currentTimeMillis();
             }
         }
+    }
+
+    /**
+     * Format epoch milliseconds as ISO-8601 UTC string.
+     */
+    public String formatTimestampAsIso8601(long epochMillis) {
+        return Instant.ofEpochMilli(epochMillis).toString();
     }
 }

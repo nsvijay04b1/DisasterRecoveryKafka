@@ -25,7 +25,7 @@ spec:
         imagePullPolicy: IfNotPresent
         env:
         - name: KAFKA_BOOTSTRAP_SERVERS
-          value: "kafka-headless.default.svc.cluster.local:9092"
+          value: "my-kafka.kafka.svc.cluster.local:9092"
         - name: KAFKA_TOPIC
           value: "test-topic"
         - name: KAFKA_CONSUMER_GROUP

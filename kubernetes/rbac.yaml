@@ -19,7 +19,7 @@ metadata:
   namespace: region-a
 rules:
 - apiGroups: [""]
-  resources: ["configmaps"]
+  resources: ["configmaps", "pods"]
   verbs: ["get", "watch", "list", "update", "patch"]
 ---
 # Role for ConfigMap access in region-b
@@ -30,7 +30,7 @@ metadata:
   namespace: region-b
 rules:
 - apiGroups: [""]
-  resources: ["configmaps"]
+  resources: ["configmaps", "pods"]
   verbs: ["get", "watch", "list", "update", "patch"]
 ---
 # RoleBinding for region-a
